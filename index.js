@@ -12,6 +12,12 @@ const port = 3000;
 // Estrutura: { remoteJid: { name, avatar, messages: [], summary: "", lastUpdate: Date } }
 const activeChats = {};
 
+// Variável global para o socket do WhatsApp
+let globalSock;
+
+// Middleware para parsear JSON
+app.use(express.json());
+
 // Servir arquivos estáticos
 app.use(express.static('public'));
 
@@ -24,6 +30,40 @@ app.get('/api/chats', (req, res) => {
     })).sort((a, b) => new Date(b.lastUpdate) - new Date(a.lastUpdate));
 
     res.json(chatsArray);
+});
+
+// API para enviar mensagens
+app.post('/api/messages/send', async (req, res) => {
+    const { chatId, text } = req.body;
+
+    if (!globalSock) {
+        return res.status(503).json({ error: 'WhatsApp não conectado' });
+    }
+
+    if (!chatId || !text) {
+        return res.status(400).json({ error: 'ChatId e texto são obrigatórios' });
+    }
+
+    try {
+        await globalSock.sendMessage(chatId, { text: text });
+
+        // Adicionar mensagem enviada ao histórico local imediatamente para refletir no frontend
+        if (activeChats[chatId]) {
+            activeChats[chatId].messages.push({
+                id: Date.now(), // ID temporário
+                timestamp: new Date().toISOString(),
+                sender: 'Você', // Ou nome do bot
+                type: 'Texto',
+                text: text
+            });
+            activeChats[chatId].lastUpdate = new Date().toISOString();
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Erro ao enviar mensagem:', error);
+        res.status(500).json({ error: 'Falha ao enviar mensagem' });
+    }
 });
 
 app.listen(port, () => {
@@ -227,6 +267,8 @@ async function connectToWhatsApp() {
         logger: pino({ level: 'silent' }),
         browser: ['Gamingflix AI', 'Chrome', '1.0.0']
     });
+
+    globalSock = sock;
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;

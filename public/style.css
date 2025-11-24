@@ -282,3 +282,68 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #555;
 }
+
+/* Input Area */
+.input-area {
+    padding: 20px;
+    background-color: rgba(28, 28, 30, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    position: relative;
+    z-index: 10;
+}
+
+#message-input {
+    flex: 1;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    padding: 14px 20px;
+    color: white;
+    font-size: 1rem;
+    outline: none;
+    transition: all 0.3s ease;
+    font-family: inherit;
+}
+
+#message-input:focus {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.1);
+}
+
+#message-input::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+#send-btn {
+    background: linear-gradient(135deg, #0a84ff 0%, #0071e3 100%);
+    border: none;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s;
+    box-shadow: 0 4px 12px rgba(10, 132, 255, 0.3);
+}
+
+#send-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 16px rgba(10, 132, 255, 0.4);
+}
+
+#send-btn:active {
+    transform: scale(0.95);
+}
+
+#send-btn svg {
+    margin-left: 2px;
+}

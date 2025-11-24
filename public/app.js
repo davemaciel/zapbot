@@ -16,31 +16,53 @@ function formatTime(isoString) {
 
 // Renderizar lista de chats na sidebar
 function renderChatList() {
-    // Salvar scroll position se necessário, mas para lista simples ok recriar ou diff
-    // Para simplificar e evitar bugs na lista, vamos recriar (lista não pulsa tanto quanto mensagens)
-    chatListEl.innerHTML = '';
-
     if (activeChats.length === 0) {
-        chatListEl.innerHTML = '<div class="loading-state" style="padding:20px; text-align:center; color:#666;">Nenhuma conversa ativa</div>';
+        if (!chatListEl.querySelector('.loading-state')) {
+            chatListEl.innerHTML = '<div class="loading-state" style="padding:20px; text-align:center; color:#666;">Nenhuma conversa ativa</div>';
+        }
         return;
     }
 
+    // Remover estado de loading se existir
+    const loadingState = chatListEl.querySelector('.loading-state');
+    if (loadingState) loadingState.remove();
+
+    // Sincronizar lista
     activeChats.forEach(chat => {
-        const div = document.createElement('div');
-        div.className = `chat-item ${chat.id === selectedChatId ? 'active' : ''}`;
-        div.onclick = () => selectChat(chat.id);
+        let chatItem = document.getElementById(`chat-item-${chat.id}`);
+
+        // Se não existe, cria
+        if (!chatItem) {
+            chatItem = document.createElement('div');
+            chatItem.id = `chat-item-${chat.id}`;
+            chatItem.className = 'chat-item';
+            chatItem.onclick = () => selectChat(chat.id);
+            chatListEl.appendChild(chatItem);
+        }
+
+        // Atualiza classe active
+        if (chat.id === selectedChatId) {
+            chatItem.classList.add('active');
+        } else {
+            chatItem.classList.remove('active');
+        }
 
         const lastMsg = chat.messages[chat.messages.length - 1];
         const previewText = lastMsg ? (lastMsg.type === 'Texto' ? lastMsg.text : `[${lastMsg.type}]`) : 'Sem mensagens';
+        const avatarLetter = chat.name.charAt(0).toUpperCase();
 
-        div.innerHTML = `
-            <div class="avatar-placeholder">${chat.name.charAt(0).toUpperCase()}</div>
+        // Atualiza conteúdo apenas se mudou (para evitar flicker)
+        const newHTML = `
+            <div class="avatar-placeholder">${avatarLetter}</div>
             <div class="chat-info">
                 <div class="chat-name">${chat.name}</div>
                 <div class="chat-preview">${previewText}</div>
             </div>
         `;
-        chatListEl.appendChild(div);
+
+        if (chatItem.innerHTML !== newHTML) {
+            chatItem.innerHTML = newHTML;
+        }
     });
 }
 
@@ -125,3 +147,47 @@ async function fetchChats() {
 // Polling a cada 2s
 setInterval(fetchChats, 2000);
 fetchChats();
+
+// Envio de Mensagens
+const messageInput = document.getElementById('message-input');
+const sendBtn = document.getElementById('send-btn');
+
+async function sendMessage() {
+    const text = messageInput.value.trim();
+    if (!text || !selectedChatId) return;
+
+    // Limpar input imediatamente
+    messageInput.value = '';
+
+    try {
+        const response = await fetch('/api/messages/send', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                chatId: selectedChatId,
+                text: text
+            })
+        });
+
+        if (response.ok) {
+            // Atualizar chat imediatamente (o backend já adicionou ao array, então o próximo fetch pegaria, 
+            // mas podemos forçar um fetch agora para garantir a responsividade visual)
+            fetchChats();
+        } else {
+            console.error('Erro ao enviar mensagem');
+            alert('Erro ao enviar mensagem. Verifique a conexão.');
+        }
+    } catch (error) {
+        console.error('Erro na requisição de envio:', error);
+    }
+}
+
+sendBtn.addEventListener('click', sendMessage);
+
+messageInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        sendMessage();
+    }
+});

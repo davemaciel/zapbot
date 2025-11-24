@@ -1,14 +1,34 @@
 {
-  "name": "whatsapp-ai-summary",
+  "name": "whatsapp-ai-intelligence",
   "version": "1.0.0",
+  "description": "Bot inteligente de resumo para WhatsApp com IA - Transcreve áudios, analisa imagens e gera resumos executivos contextualmente ricos",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/davemaciel/zapbot.git"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "ai",
+    "baileys",
+    "openrouter",
+    "gemini",
+    "transcription",
+    "summary",
+    "chatbot",
+    "automation"
+  ],
+  "author": "Dave Maciel <https://github.com/davemaciel>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/davemaciel/zapbot/issues"
+  },
+  "homepage": "https://github.com/davemaciel/zapbot#readme",
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "axios": "^1.13.2",

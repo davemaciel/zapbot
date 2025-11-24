@@ -2,10 +2,37 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, download
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const axios = require('axios');
+const express = require('express');
+require('dotenv').config(); // Carregar variáveis de ambiente
+
+const app = express();
+const port = 3000;
+
+// Armazenamento em memória para os últimos resumos
+const recentSummaries = [];
+
+// Servir arquivos estáticos
+app.use(express.static('public'));
+
+// API para obter resumos
+app.get('/api/summaries', (req, res) => {
+    console.log(`📡 API solicitada. Retornando ${recentSummaries.length} resumos.`);
+    res.json(recentSummaries.slice().reverse()); // Retorna do mais recente para o mais antigo
+});
+
+app.listen(port, () => {
+    console.log(`🌐 Servidor web rodando em http://localhost:${port}`);
+});
 
 // Configuração da API (OpenRouter)
-const OPENROUTER_API_KEY = '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';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+if (!OPENROUTER_API_KEY) {
+    console.error('❌ ERRO: Chave da API não encontrada. Verifique o arquivo .env');
+    process.exit(1);
+}
+
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -66,6 +93,48 @@ async function transcribeAudio(mediaBuffer, mimeType) {
     }
 
     console.error('❌ Todas as tentativas de transcrição falharam.');
+    return null;
+}
+
+async function analyzeImage(mediaBuffer, mimeType) {
+    const base64Image = mediaBuffer.toString('base64');
+
+    try {
+        console.log('🖼️ Analisando imagem com Gemini 2.0 Flash...');
+        const response = await axios.post(OPENROUTER_URL, {
+            model: 'google/gemini-2.0-flash-exp:free',
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Descreva esta imagem detalhadamente e resuma seu conteúdo em português. Se houver texto na imagem, transcreva-o também.'
+                        },
+                        {
+                            type: 'image_url',
+                            image_url: {
+                                url: `data:${mimeType};base64,${base64Image}`
+                            }
+                        }
+                    ]
+                }
+            ]
+        }, {
+            headers: {
+                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'http://localhost:3000',
+                'X-Title': 'WhatsApp AI Summary'
+            }
+        });
+
+        if (response.data && response.data.choices && response.data.choices.length > 0) {
+            return response.data.choices[0].message.content;
+        }
+    } catch (error) {
+        console.error('Erro ao analisar imagem:', error.response ? error.response.data : error.message);
+    }
     return null;
 }
 
@@ -154,6 +223,8 @@ async function connectToWhatsApp() {
 
                     // 2. Se for áudio, transcrever
                     const audioMessage = msg.message?.audioMessage;
+                    const imageMessage = msg.message?.imageMessage;
+
                     if (audioMessage) {
                         messageType = 'Áudio';
                         console.log(`\n🎤 Áudio recebido de ${sender}. Baixando e transcrevendo...`);
@@ -179,6 +250,35 @@ async function connectToWhatsApp() {
                         } catch (err) {
                             console.error('Erro ao processar áudio:', err);
                         }
+                    } else if (imageMessage) {
+                        messageType = 'Imagem';
+                        console.log(`\n🖼️ Imagem recebida de ${sender}. Baixando e analisando...`);
+
+                        try {
+                            const buffer = await downloadMediaMessage(
+                                msg,
+                                'buffer',
+                                {},
+                                {
+                                    logger: pino({ level: 'silent' }),
+                                    reuploadRequest: sock.updateMediaMessage
+                                }
+                            );
+
+                            const description = await analyzeImage(buffer, imageMessage.mimetype);
+                            if (description) {
+                                console.log(`📝 Descrição da Imagem: ${description}`);
+                                textToSummarize = `[Descrição da Imagem]: ${description}`;
+                                // Se houver legenda na imagem, adicionar também
+                                if (imageMessage.caption) {
+                                    textToSummarize += `\n[Legenda Original]: ${imageMessage.caption}`;
+                                }
+                            } else {
+                                console.log('❌ Falha na análise da imagem.');
+                            }
+                        } catch (err) {
+                            console.error('Erro ao processar imagem:', err);
+                        }
                     }
 
                     // 3. Se tivermos texto (original ou transcrito), resumir
@@ -193,6 +293,21 @@ async function connectToWhatsApp() {
                         console.log('\n✨ RESUMO IA:');
                         console.log(summary);
                         console.log('===================================================\n');
+
+                        // Salvar no histórico
+                        recentSummaries.push({
+                            id: Date.now(),
+                            timestamp: new Date().toISOString(),
+                            sender: sender,
+                            type: messageType,
+                            originalText: textToSummarize,
+                            summary: summary
+                        });
+
+                        // Manter apenas os últimos 50
+                        if (recentSummaries.length > 50) {
+                            recentSummaries.shift();
+                        }
                     }
                 }
             }

@@ -6,7 +6,7 @@ const express = require('express');
 require('dotenv').config(); // Carregar variáveis de ambiente
 
 const app = express();
-const port = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Armazenamento em memória para os chats ativos
 // Estrutura: { remoteJid: { name, avatar, messages: [], summary: "", lastUpdate: Date } }
@@ -411,3 +411,9 @@ async function connectToWhatsApp() {
 }
 
 connectToWhatsApp();
+
+// Iniciar servidor HTTP
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🚀 Servidor rodando em http://localhost:${PORT}`);
+    console.log(`📡 Aguardando conexão com WhatsApp...\n`);
+});

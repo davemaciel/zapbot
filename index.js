@@ -8,16 +8,22 @@ require('dotenv').config(); // Carregar variáveis de ambiente
 const app = express();
 const port = 3000;
 
-// Armazenamento em memória para os últimos resumos
-const recentSummaries = [];
+// Armazenamento em memória para os chats ativos
+// Estrutura: { remoteJid: { name, avatar, messages: [], summary: "", lastUpdate: Date } }
+const activeChats = {};
 
 // Servir arquivos estáticos
 app.use(express.static('public'));
 
-// API para obter resumos
-app.get('/api/summaries', (req, res) => {
-    console.log(`📡 API solicitada. Retornando ${recentSummaries.length} resumos.`);
-    res.json(recentSummaries.slice().reverse()); // Retorna do mais recente para o mais antigo
+// API para obter chats e resumos
+app.get('/api/chats', (req, res) => {
+    // Converter objeto para array para o frontend
+    const chatsArray = Object.entries(activeChats).map(([id, chat]) => ({
+        id,
+        ...chat
+    })).sort((a, b) => new Date(b.lastUpdate) - new Date(a.lastUpdate));
+
+    res.json(chatsArray);
 });
 
 app.listen(port, () => {
@@ -99,55 +105,98 @@ async function transcribeAudio(mediaBuffer, mimeType) {
 async function analyzeImage(mediaBuffer, mimeType) {
     const base64Image = mediaBuffer.toString('base64');
 
-    try {
-        console.log('🖼️ Analisando imagem com Gemini 2.0 Flash...');
-        const response = await axios.post(OPENROUTER_URL, {
-            model: 'google/gemini-2.0-flash-exp:free',
-            messages: [
-                {
-                    role: 'user',
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Descreva esta imagem detalhadamente e resuma seu conteúdo em português. Se houver texto na imagem, transcreva-o também.'
-                        },
-                        {
-                            type: 'image_url',
-                            image_url: {
-                                url: `data:${mimeType};base64,${base64Image}`
-                            }
-                        }
-                    ]
-                }
-            ]
-        }, {
-            headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'http://localhost:3000',
-                'X-Title': 'WhatsApp AI Summary'
-            }
-        });
+    // Estratégia: Tentar o modelo principal com backoff exponencial
+    // Adicionando fallback para o modelo 'thinking' que às vezes tem cotas diferentes
+    const attempts = [
+        { model: 'google/gemini-2.0-flash-exp:free', delay: 0 },
+        { model: 'google/gemini-2.0-flash-exp:free', delay: 3000 },
+        { model: 'google/gemini-2.0-flash-exp:free', delay: 6000 },
+        { model: 'google/gemini-2.0-flash-thinking-exp:free', delay: 5000 }
+    ];
 
-        if (response.data && response.data.choices && response.data.choices.length > 0) {
-            return response.data.choices[0].message.content;
+    for (const attempt of attempts) {
+        if (attempt.delay > 0) {
+            console.log(`⏳ Aguardando ${attempt.delay}ms para tentar analisar imagem novamente...`);
+            await sleep(attempt.delay);
         }
-    } catch (error) {
-        console.error('Erro ao analisar imagem:', error.response ? error.response.data : error.message);
+
+        try {
+            console.log(`🖼️ Tentando analisar imagem com modelo: ${attempt.model}...`);
+            const response = await axios.post(OPENROUTER_URL, {
+                model: attempt.model,
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'Descreva esta imagem detalhadamente e resuma seu conteúdo em português. Se houver texto na imagem, transcreva-o também.'
+                            },
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: `data:${mimeType};base64,${base64Image}`
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': 'http://localhost:3000',
+                    'X-Title': 'WhatsApp AI Summary'
+                }
+            });
+
+            if (response.data && response.data.choices && response.data.choices.length > 0) {
+                return response.data.choices[0].message.content;
+            }
+        } catch (error) {
+            const status = error.response ? error.response.status : 'unknown';
+            console.warn(`⚠️ Falha na análise de imagem com ${attempt.model} (Status: ${status}).`);
+            // Se for erro 429, o loop continuará e tentará novamente após o delay
+        }
     }
+
+    console.error('❌ Todas as tentativas de análise de imagem falharam.');
     return null;
 }
 
-async function summarizeText(text) {
+async function updateChatSummary(chatId) {
+    const chat = activeChats[chatId];
+    if (!chat || chat.messages.length === 0) return;
+
+    // Pegar as últimas 20 mensagens para contexto
+    const recentMessages = chat.messages.slice(-20);
+    const messagesText = recentMessages.map(m => `[${m.sender} - ${m.type}]: ${m.text}`).join('\n');
+    const currentSummary = chat.summary || "Nenhum resumo anterior.";
+
     try {
+        console.log(`🤖 Atualizando resumo para o chat: ${chat.name}...`);
         const response = await axios.post(OPENROUTER_URL, {
             model: 'x-ai/grok-4.1-fast:free',
             messages: [
                 {
                     role: 'system',
-                    content: 'Você é um assistente pessoal inteligente. Seu objetivo é ler a mensagem recebida e fornecer um resumo conciso, direto e útil em português. Se a mensagem for curta, apenas explique o contexto. Destaque pontos importantes.'
+                    content: `Você é um assistente de atendimento de elite. Seu objetivo é gerar um "Resumo Executivo" da conversa para que o atendente entenda TUDO sem precisar ler as mensagens.
+
+                    DIRETRIZES DO RESUMO:
+                    1. **NÃO** narre a conversa cronologicamente ("Ele disse oi, depois disse isso").
+                    2. **ESTRUTURE** a resposta em seções claras usando Markdown:
+                       - 🎯 **Objetivo Principal**: O que o cliente quer? (Em 1 frase).
+                       - 📝 **Pontos Chave**: Lista com bullet points dos detalhes importantes (produtos, valores, datas, problemas).
+                       - 🚦 **Status/Ação Necessária**: O que precisa ser feito agora? (Ex: "Responder sobre estoque", "Aguardando cliente").
+                       - 🧠 **Contexto/Humor**: O cliente está irritado? Com pressa? (Se relevante).
+
+                    3. **ATUALIZE** o resumo anterior incorporando as novas informações. Se o assunto mudou, crie um novo tópico.
+                    4. Seja direto e profissional. Use Português do Brasil.`
                 },
-                { role: 'user', content: `Resuma esta mensagem do WhatsApp: "${text}"` }
+                {
+                    role: 'user',
+                    content: `Resumo Anterior:\n"${currentSummary}"\n\nNovas Mensagens (Contexto Recente):\n${messagesText}\n\nGere o novo Resumo Executivo Estruturado:`
+                }
             ],
             reasoning: { enabled: true }
         }, {
@@ -160,13 +209,11 @@ async function summarizeText(text) {
         });
 
         if (response.data && response.data.choices && response.data.choices.length > 0) {
-            return response.data.choices[0].message.content;
-        } else {
-            return 'Não foi possível gerar o resumo (resposta vazia).';
+            chat.summary = response.data.choices[0].message.content;
+            console.log(`✨ Resumo atualizado para ${chat.name}`);
         }
     } catch (error) {
-        console.error('Erro ao chamar Grok:', error.response ? error.response.data : error.message);
-        return 'Erro ao gerar resumo com Grok.';
+        console.error('Erro ao atualizar resumo:', error.response ? error.response.data : error.message);
     }
 }
 
@@ -281,33 +328,39 @@ async function connectToWhatsApp() {
                         }
                     }
 
-                    // 3. Se tivermos texto (original ou transcrito), resumir
+                    // 3. Processar mensagem e atualizar chat
                     if (textToSummarize) {
-                        console.log('\n===================================================');
-                        console.log(`📩 Nova mensagem (${messageType}) de: ${sender}`);
-                        if (messageType === 'Texto') console.log(`📝 Conteúdo: ${textToSummarize}`);
-                        console.log('🤖 Gerando resumo com Grok 4.1...');
+                        const chatId = msg.key.remoteJid;
 
-                        const summary = await summarizeText(textToSummarize);
+                        // Inicializar chat se não existir
+                        if (!activeChats[chatId]) {
+                            activeChats[chatId] = {
+                                name: sender, // Nome inicial, pode melhorar depois
+                                messages: [],
+                                summary: '',
+                                lastUpdate: new Date().toISOString()
+                            };
+                        }
 
-                        console.log('\n✨ RESUMO IA:');
-                        console.log(summary);
-                        console.log('===================================================\n');
-
-                        // Salvar no histórico
-                        recentSummaries.push({
-                            id: Date.now(),
+                        // Adicionar mensagem ao histórico
+                        activeChats[chatId].messages.push({
+                            id: msg.key.id,
                             timestamp: new Date().toISOString(),
                             sender: sender,
                             type: messageType,
-                            originalText: textToSummarize,
-                            summary: summary
+                            text: textToSummarize
                         });
 
-                        // Manter apenas os últimos 50
-                        if (recentSummaries.length > 50) {
-                            recentSummaries.shift();
-                        }
+                        activeChats[chatId].lastUpdate = new Date().toISOString();
+                        activeChats[chatId].name = sender; // Atualiza nome caso mude
+
+                        console.log('\n===================================================');
+                        console.log(`📩 Nova mensagem (${messageType}) de: ${sender}`);
+                        if (messageType === 'Texto') console.log(`📝 Conteúdo: ${textToSummarize}`);
+
+                        // Atualizar resumo (Debounce simples poderia ser aplicado aqui, mas faremos direto por enquanto)
+                        await updateChatSummary(chatId);
+                        console.log('===================================================\n');
                     }
                 }
             }

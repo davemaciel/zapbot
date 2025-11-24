@@ -1,25 +1,69 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsApp AI Summaries</title>
+    <title>WhatsApp AI Intelligence</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet">
 </head>
+
 <body>
-    <div class="container">
-        <header>
-            <h1>🤖 Resumos do WhatsApp</h1>
-            <p>Visualização em tempo real das mensagens processadas</p>
-        </header>
-        
-        <div id="summaries-container" class="cards-grid">
-            <!-- Cards serão inseridos aqui via JS -->
-            <div class="loading">Aguardando mensagens...</div>
-        </div>
+    <div class="app-container">
+        <!-- Sidebar: Lista de Chats -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>Mensagens</h2>
+            </div>
+            <div id="chat-list" class="chat-list">
+                <!-- Chats serão inseridos aqui -->
+                <div class="loading-state">Aguardando conexão...</div>
+            </div>
+        </aside>
+
+        <!-- Área Principal -->
+        <main class="main-content">
+            <div id="empty-state" class="empty-state">
+                <div class="icon">💬</div>
+                <h3>Selecione uma conversa</h3>
+                <p>Para ver o histórico e o resumo inteligente.</p>
+            </div>
+
+            <div id="active-chat-container" class="active-chat-container hidden">
+                <!-- Coluna da Esquerda: Chat -->
+                <section class="chat-view">
+                    <header class="chat-header">
+                        <div class="avatar-placeholder" id="header-avatar">?</div>
+                        <h3 id="header-name">Nome do Contato</h3>
+                    </header>
+                    <div id="messages-area" class="messages-area">
+                        <!-- Balões de mensagem aqui -->
+                    </div>
+                </section>
+
+                <!-- Coluna da Direita: Resumo Inteligente -->
+                <section class="summary-panel">
+                    <div class="summary-card glass">
+                        <div class="summary-header">
+                            <span class="ai-icon">✨</span>
+                            <h3>Resumo Inteligente</h3>
+                        </div>
+                        <div id="summary-content" class="summary-content">
+                            <p class="placeholder-text">Aguardando análise da IA...</p>
+                        </div>
+                        <div class="summary-footer">
+                            <small>Atualizado em tempo real</small>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
     </div>
 
     <script src="app.js"></script>
 </body>
+
 </html>
